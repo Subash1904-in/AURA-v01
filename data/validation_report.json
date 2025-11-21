@@ -1,0 +1,12 @@
+{
+  "generatedAt": "2025-11-21T07:16:31.201Z",
+  "counts": {
+    "snippets": 172,
+    "errors": 0,
+    "warnings": 1
+  },
+  "errors": [],
+  "warnings": [
+    "Duplicate short summary detected (welcome to the department of computer science & business systems welcome to a de): incoming-mi8j12ym-113, incoming-mi8j12ym-143"
+  ]
+}

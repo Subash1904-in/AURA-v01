@@ -190,15 +190,15 @@ const AppContent: React.FC = () => {
             voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } },
           },
           tools: [{ functionDeclarations: [getNavigationPathDeclaration, getCollegeInfoDeclaration, closeMapViewDeclaration] }],
-          systemInstruction: 'You are AURA, an AI assistant developed in the AI & DS department at KSSEM. If asked who you are or what your name is, reply: "I am AURA, developed in the AI & DS department." Never say you are Gemini. Communicate ONLY in English. Use tools to answer questions. For navigation, use `getNavigationPath`. For college info, use `getCollegeInfo`. Keep responses concise and conversational.',
+          systemInstruction: 'You are AURA, an AI assistant for KSSEM college developed in the AI & DS department. Communicate in English. For factual questions about KSSEM (faculty, departments, admissions, placements, facilities, leadership, etc.), use the getCollegeInfo tool to retrieve accurate information. For navigation, use getNavigationPath. Keep responses brief and conversational.',
         },
         callbacks: {
           onopen: () => {
             setVoiceState(VoiceState.LISTENING);
             const source = inputAudioContextRef.current!.createMediaStreamSource(stream);
             streamSourceRef.current = source;
-            // Reduced buffer size to 2048 for lower latency
-            const scriptProcessor = inputAudioContextRef.current!.createScriptProcessor(2048, 1, 1);
+            // Reduced buffer size to 1024 for minimal latency
+            const scriptProcessor = inputAudioContextRef.current!.createScriptProcessor(1024, 1, 1);
             scriptProcessorRef.current = scriptProcessor;
 
             scriptProcessor.onaudioprocess = (audioProcessingEvent) => {
@@ -211,21 +211,21 @@ const AppContent: React.FC = () => {
               }
               const rms = Math.sqrt(sum / inputData.length);
 
-              // Noise Gate Threshold - ignore quiet sounds (Increased to 0.04 to avoid false positives)
-              const NOISE_THRESHOLD = 0.04;
+              // Noise Gate Threshold - balanced for consistent voice input
+              const NOISE_THRESHOLD = 0.02;
 
               if (rms > NOISE_THRESHOLD) {
                 speechDetectedCounterRef.current += 1;
 
-                // Require 3 consecutive frames (~100ms) to trigger speech detection
-                if (speechDetectedCounterRef.current >= 3) {
-                  // Local Interruption: Stop audio immediately
-                  stopAudioPlayback();
+                // Always send audio to the server when above threshold
+                const pcmBlob = createBlob(inputData);
+                sessionPromiseRef.current.then((session: any) => {
+                  session.sendRealtimeInput({ media: pcmBlob });
+                });
 
-                  const pcmBlob = createBlob(inputData);
-                  sessionPromiseRef.current.then((session: any) => {
-                    session.sendRealtimeInput({ media: pcmBlob });
-                  });
+                // Local Interruption: Stop audio immediately after 3 consecutive frames (~100ms)
+                if (speechDetectedCounterRef.current >= 3) {
+                  stopAudioPlayback();
                 }
               } else {
                 // Reset counter if silence is detected
