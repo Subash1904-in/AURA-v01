@@ -1,0 +1,8 @@
+{
+  "name": "Aura",
+  "description": "A premium, hands-free, vertical kiosk AI assistant inspired by Apple Design, featuring fluid spring animations and VisionOS aesthetics.",
+  "requestFramePermissions": [
+    "microphone",
+    "camera"
+  ]
+}

@@ -1,0 +1,7 @@
+# Python dependencies for RAG tooling
+faiss-cpu==1.7.4            # vector index storage/search
+sentence-transformers==3.0.1 # MiniLM encoder for embeddings
+fastapi==0.115.0            # lightweight HTTP API server
+uvicorn[standard]==0.30.3   # ASGI server for FastAPI
+numpy==2.1.1                # array utilities for embeddings
+pydantic==2.8.2             # data validation/models

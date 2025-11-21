@@ -1,0 +1,8 @@
+{
+  "name": "KSSEM AI Assistant",
+  "description": "A voice-powered AI assistant for KSSEM college, providing intelligent answers based on the college website. Features a beautiful, voice-only UI inspired by Gemini Live.",
+  "requestFramePermissions": [
+    "microphone",
+    "camera"
+  ]
+}
