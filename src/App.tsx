@@ -85,25 +85,7 @@ const AppContent: React.FC = () => {
   const nextStartTimeRef = useRef(0);
   const audioSourcesRef = useRef(new Set<AudioBufferSourceNode>());
   const lastToolResponseImageRef = useRef<{ imageUrl: string; imageAlt: string } | null>(null);
-  const interruptedRef = useRef(false);
   const speechDetectedCounterRef = useRef(0);
-
-  const stopAudioPlayback = useCallback(() => {
-    if (audioSourcesRef.current.size > 0) {
-      console.log("Local Interruption: Stopping audio playback");
-      audioSourcesRef.current.forEach(source => {
-        try {
-          source.stop();
-        } catch (e) {
-          // Ignore errors if already stopped
-        }
-      });
-      audioSourcesRef.current.clear();
-      nextStartTimeRef.current = 0;
-      interruptedRef.current = true;
-      setVoiceState(VoiceState.LISTENING);
-    }
-  }, []);
 
   // --- Routing & Admin Shortcuts ---
   useEffect(() => {
@@ -286,8 +268,6 @@ const AppContent: React.FC = () => {
 
             const base64Audio = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
             if (base64Audio) {
-              if (interruptedRef.current) return;
-
               setVoiceState(VoiceState.SPEAKING);
               const outputAudioContext = outputAudioContextRef.current!;
               nextStartTimeRef.current = Math.max(nextStartTimeRef.current, outputAudioContext.currentTime);
@@ -306,16 +286,6 @@ const AppContent: React.FC = () => {
               source.start(nextStartTimeRef.current);
               nextStartTimeRef.current += audioBuffer.duration;
               audioSourcesRef.current.add(source);
-            }
-
-            const interrupted = message.serverContent?.interrupted;
-            if (interrupted) {
-              for (const source of audioSourcesRef.current.values()) {
-                source.stop();
-                audioSourcesRef.current.delete(source);
-              }
-              nextStartTimeRef.current = 0;
-              interruptedRef.current = false;
             }
           },
           onerror: (e: ErrorEvent) => {
