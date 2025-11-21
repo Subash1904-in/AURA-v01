@@ -45,13 +45,27 @@ export async function fetchRagContext(query: string, intent: QueryIntent, k = 5)
   url.searchParams.set('intent', intent);
   url.searchParams.set('k', String(k));
 
+  // Use AbortController to allow cancellation by callers
+  const controller = new AbortController();
+  const signal = controller.signal;
+
   console.log(`🌐 RAG Request: ${url.toString()}`);
 
-  const response = await fetch(url.toString(), {
+  const responsePromise = fetch(url.toString(), {
     headers: {
       'Content-Type': 'application/json',
     },
+    signal,
   });
+
+  // Attach a small timeout to avoid long-hanging requests
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  let response;
+  try {
+    response = await responsePromise;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   console.log(`📡 RAG Response Status: ${response.status}`);
 

@@ -94,7 +94,7 @@ async def health() -> dict:
 
 
 @app.get("/search", response_model=SearchResponse)
-async def search(
+def search(
     q: str = Query(..., description="Query text"),
     k: int = Query(5, ge=1, le=50, description="Number of results"),
     ids: Optional[str] = Query(None, description="Comma separated snippet IDs to filter within"),

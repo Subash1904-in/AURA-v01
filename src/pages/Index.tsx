@@ -80,6 +80,8 @@ const Index = () => {
   const lastToolResponseImageRef = useRef<{ imageUrl: string; imageAlt: string } | null>(null);
   const deactivationTimerRef = useRef<number | null>(null);
   const interruptedRef = useRef(false);
+  const lastSendTimeRef = useRef(0);
+  const MIN_SEND_INTERVAL_MS = 150;
   const recognitionRef = useRef<any>(null);
 
   // UI State (from new frontend)
@@ -87,16 +89,10 @@ const Index = () => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const handleInterrupt = useCallback(() => {
+    // Do not forcibly interrupt audio playback. Mark interruption request but do not stop playback.
     interruptedRef.current = true;
-    audioSourcesRef.current.forEach(source => {
-      try { source.stop(); } catch (e) { }
-    });
-    audioSourcesRef.current.clear();
-
-    const utterance = new SpeechSynthesisUtterance("Ok");
-    window.speechSynthesis.speak(utterance);
-
-    // Force state reset if onended doesn't fire or if we want immediate feedback
+    console.info('[Index] Local interruption requested by user — acknowledged but not stopping current audio playback.');
+    // Optionally, transition UI state back to listening when appropriate; do not stop audio sources here.
     setConversationState(ConversationState.LISTENING);
   }, []);
 
@@ -223,26 +219,88 @@ const Index = () => {
           systemInstruction: 'You are AURA, an AI assistant developed in the AI & DS department at KSSEM. If asked who you are or what your name is, reply: "I am AURA, developed in the AI & DS department." Never say you are Gemini. Communicate ONLY in English. If a user speaks in any other language (Hindi, Kannada, Tamil, Telugu, etc.), politely respond in English and ask them to speak in English. Use your tools to answer questions. For navigation inside the B-Block, use the `getNavigationPath` tool. To close the map view, use the `closeMapView` tool. For any factual questions about the college (like departments, admissions, facilities, etc.), you MUST use the `getCollegeInfo` tool to retrieve information from the knowledge base. Do not answer from general knowledge. After using a tool, synthesize the information into a concise, conversational answer. If a user asks a general question, gently guide the conversation back to topics related to the college.',
         },
         callbacks: {
-          onopen: () => {
+            onopen: () => {
             setConversationState(ConversationState.LISTENING);
-            const source = inputAudioContextRef.current!.createMediaStreamSource(stream);
-            streamSourceRef.current = source;
-            const scriptProcessor = inputAudioContextRef.current!.createScriptProcessor(4096, 1, 1);
-            scriptProcessorRef.current = scriptProcessor;
+              const source = inputAudioContextRef.current!.createMediaStreamSource(stream);
+              streamSourceRef.current = source;
 
-            scriptProcessor.onaudioprocess = (audioProcessingEvent) => {
-              if (conversationStateRef.current === ConversationState.SPEAKING) {
-                return;
-              }
-              const inputData = audioProcessingEvent.inputBuffer.getChannelData(0);
-              const pcmBlob = createBlob(inputData);
-              sessionPromiseRef.current.then((session: any) => {
-                session.sendRealtimeInput({ media: pcmBlob });
-              });
-            };
-            source.connect(scriptProcessor);
-            scriptProcessor.connect(inputAudioContextRef.current!.destination);
-          },
+              (async () => {
+                try {
+                  if (inputAudioContextRef.current!.audioWorklet) {
+                    await inputAudioContextRef.current!.audioWorklet.addModule('/recorder-processor.js');
+                    const workletNode = new AudioWorkletNode(inputAudioContextRef.current!, 'recorder-processor');
+                    console.info('[Index] Using AudioWorkletNode for audio input');
+
+                    workletNode.port.onmessage = (evt) => {
+                      const inputData = evt.data instanceof Float32Array ? evt.data : new Float32Array(evt.data);
+                      const rmsCalc = (() => {
+                        let sum = 0;
+                        for (let i = 0; i < inputData.length; i++) sum += inputData[i] * inputData[i];
+                        return Math.sqrt(sum / inputData.length);
+                      })();
+                      console.debug(`[Index] worklet rms=${rmsCalc.toFixed(4)}`);
+
+                      const now = Date.now();
+                      if (now - lastSendTimeRef.current < MIN_SEND_INTERVAL_MS) {
+                        console.debug('[Index] Throttled audio frame (skipped)');
+                        return;
+                      }
+                      lastSendTimeRef.current = now;
+
+                      const pcmBlob = createBlob(inputData);
+                      console.debug('[Index] Sending audio frame (worklet) to session');
+                      sessionPromiseRef.current.then((session: any) => {
+                        try { session.sendRealtimeInput({ media: pcmBlob }); } catch (e) { console.warn('Failed to send realtime input', e); }
+                      }).catch((e: any) => console.warn('[Index] sessionPromise rejected', e));
+                    };
+
+                    source.connect(workletNode);
+                  } else {
+                    const scriptProcessor = inputAudioContextRef.current!.createScriptProcessor(4096, 1, 1);
+                    scriptProcessorRef.current = scriptProcessor;
+                    console.info('[Index] AudioWorklet not available — using ScriptProcessorNode');
+
+                    scriptProcessor.onaudioprocess = (audioProcessingEvent) => {
+                      if (conversationStateRef.current === ConversationState.SPEAKING) return;
+                      const inputData = audioProcessingEvent.inputBuffer.getChannelData(0);
+                      const rmsCalc = (() => {
+                        let sum = 0;
+                        for (let i = 0; i < inputData.length; i++) sum += inputData[i] * inputData[i];
+                        return Math.sqrt(sum / inputData.length);
+                      })();
+                      console.debug(`[Index] onaudioprocess rms=${rmsCalc.toFixed(4)}`);
+
+                      const now = Date.now();
+                      if (now - lastSendTimeRef.current < MIN_SEND_INTERVAL_MS) {
+                        console.debug('[Index] Throttled audio frame (skipped)');
+                        return;
+                      }
+                      lastSendTimeRef.current = now;
+
+                      const pcmBlob = createBlob(inputData);
+                      console.debug('[Index] Sending audio frame to session');
+                      sessionPromiseRef.current.then((session: any) => {
+                        try { session.sendRealtimeInput({ media: pcmBlob }); } catch (e) { console.warn('Failed to send realtime input', e); }
+                      }).catch((e: any) => console.warn('[Index] sessionPromise rejected', e));
+                    };
+                    source.connect(scriptProcessor);
+                    scriptProcessor.connect(inputAudioContextRef.current!.destination);
+                  }
+                } catch (err) {
+                  console.warn('[Index] Failed to initialize AudioWorklet, falling back to ScriptProcessor', err);
+                  const scriptProcessor = inputAudioContextRef.current!.createScriptProcessor(4096, 1, 1);
+                  scriptProcessorRef.current = scriptProcessor;
+                  scriptProcessor.onaudioprocess = (audioProcessingEvent) => {
+                    if (conversationStateRef.current === ConversationState.SPEAKING) return;
+                    const inputData = audioProcessingEvent.inputBuffer.getChannelData(0);
+                    const pcmBlob = createBlob(inputData);
+                    sessionPromiseRef.current.then((session: any) => session.sendRealtimeInput({ media: pcmBlob }));
+                  };
+                  source.connect(scriptProcessor);
+                  scriptProcessor.connect(inputAudioContextRef.current!.destination);
+                }
+              })();
+            },
           onmessage: async (message: LiveServerMessage) => {
             if (message.toolCall) {
               for (const fc of message.toolCall.functionCalls) {
@@ -339,11 +397,8 @@ const Index = () => {
 
             const interrupted = message.serverContent?.interrupted;
             if (interrupted) {
-              for (const source of audioSourcesRef.current.values()) {
-                source.stop();
-                audioSourcesRef.current.delete(source);
-              }
-              nextStartTimeRef.current = 0;
+              // Ignore server-side interruption signals to avoid abrupt cutoffs.
+              console.info('[Index] Server interruption signal received — ignoring to avoid abrupt audio cutoff.');
             }
           },
           onerror: (e: ErrorEvent) => {

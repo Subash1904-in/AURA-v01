@@ -68,11 +68,16 @@ const AppContent: React.FC = () => {
 
   // Live API Refs
   const sessionPromiseRef = useRef<any>(null);
+  const sessionRef = useRef<any>(null);
   const inputAudioContextRef = useRef<AudioContext | null>(null);
   const outputAudioContextRef = useRef<AudioContext | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
   const streamSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const lastSendTimeRef = useRef<number>(0);
+
+  // Audio Buffering
+  const audioBufferRef = useRef<Float32Array[]>([]);
 
   const currentInputTranscriptionRef = useRef('');
   const currentOutputTranscriptionRef = useRef('');
@@ -165,6 +170,7 @@ const AppContent: React.FC = () => {
     audioSourcesRef.current.forEach(source => source.stop());
     audioSourcesRef.current.clear();
     nextStartTimeRef.current = 0;
+    audioBufferRef.current = [];
 
     setVoiceState(VoiceState.LISTENING);
   }, []);
@@ -173,14 +179,23 @@ const AppContent: React.FC = () => {
     if (sessionPromiseRef.current) return; // Already started
 
     try {
+      console.log("Requesting microphone access...");
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      console.log("Microphone access granted.");
       mediaStreamRef.current = stream;
 
       inputAudioContextRef.current = new ((window as any).AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
       outputAudioContextRef.current = new ((window as any).AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
 
+      if (inputAudioContextRef.current.state === 'suspended') {
+        console.log("Resuming input AudioContext...");
+        await inputAudioContextRef.current.resume();
+      }
+      console.log("AudioContext state:", inputAudioContextRef.current.state);
+
+      // Connect to live API (store both promise and resolved session)
       const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_API_KEY });
-      sessionPromiseRef.current = ai.live.connect({
+      const connectPromise = ai.live.connect({
         model: 'gemini-2.5-flash-native-audio-preview-09-2025',
         config: {
           responseModalities: [Modality.AUDIO],
@@ -194,100 +209,73 @@ const AppContent: React.FC = () => {
         },
         callbacks: {
           onopen: () => {
+            console.log("Live API Connection Opened");
             setVoiceState(VoiceState.LISTENING);
-            const source = inputAudioContextRef.current!.createMediaStreamSource(stream);
-            streamSourceRef.current = source;
-            // Reduced buffer size to 1024 for minimal latency
-            const scriptProcessor = inputAudioContextRef.current!.createScriptProcessor(1024, 1, 1);
-            scriptProcessorRef.current = scriptProcessor;
-
-            scriptProcessor.onaudioprocess = (audioProcessingEvent) => {
-              const inputData = audioProcessingEvent.inputBuffer.getChannelData(0);
-
-              // Calculate RMS (Root Mean Square) to detect volume level
-              let sum = 0;
-              for (let i = 0; i < inputData.length; i++) {
-                sum += inputData[i] * inputData[i];
-              }
-              const rms = Math.sqrt(sum / inputData.length);
-
-              // Noise Gate Threshold - balanced for consistent voice input
-              const NOISE_THRESHOLD = 0.02;
-
-              if (rms > NOISE_THRESHOLD) {
-                speechDetectedCounterRef.current += 1;
-
-                // Always send audio to the server when above threshold
-                const pcmBlob = createBlob(inputData);
-                sessionPromiseRef.current.then((session: any) => {
-                  session.sendRealtimeInput({ media: pcmBlob });
-                });
-
-                // Local Interruption: Stop audio immediately after 3 consecutive frames (~100ms)
-                if (speechDetectedCounterRef.current >= 3) {
-                  stopAudioPlayback();
-                }
-              } else {
-                // Reset counter if silence is detected
-                speechDetectedCounterRef.current = 0;
-              }
-            };
-            source.connect(scriptProcessor);
-            scriptProcessor.connect(inputAudioContextRef.current!.destination);
           },
           onmessage: async (message: LiveServerMessage) => {
             if (message.toolCall) {
               setVoiceState(VoiceState.THINKING);
-              for (const fc of message.toolCall.functionCalls) {
-                let resultText = "An unknown error occurred.";
 
-                if (fc.name === 'getNavigationPath') {
-                  const destination = fc.args.destination as string;
-                  const destinationNode = findLocation(destination);
+              const processToolCalls = async () => {
+                for (const fc of message.toolCall!.functionCalls) {
+                  let resultText = "An unknown error occurred.";
 
-                  if (destinationNode) {
-                    const path = findShortestPath('ENTRANCE', destinationNode.id);
-                    if (path) {
-                      setNavigationPath(path);
-                      resultText = `Showing the path to ${destinationNode.name}.`;
-                    } else {
-                      resultText = `I found ${destinationNode.name}, but couldn't calculate a path to it.`;
+                  try {
+                    if (fc.name === 'getNavigationPath') {
+                      const destination = fc.args.destination as string;
+                      const destinationNode = findLocation(destination);
+
+                      if (destinationNode) {
+                        const path = findShortestPath('ENTRANCE', destinationNode.id);
+                        if (path) {
+                          setNavigationPath(path);
+                          resultText = `Showing the path to ${destinationNode.name}.`;
+                        } else {
+                          resultText = `I found ${destinationNode.name}, but couldn't calculate a path to it.`;
+                        }
+                      } else {
+                        resultText = `I couldn't find a location called "${destination}". Please try again.`;
+                      }
+                    } else if (fc.name === 'getCollegeInfo') {
+                      const query = fc.args.query as string;
+                      const searchResult = await searchWebsite(query);
+                      resultText = searchResult.text;
+                      if (searchResult.imageUrl) {
+                        lastToolResponseImageRef.current = { imageUrl: searchResult.imageUrl, imageAlt: searchResult.imageAlt || 'College Information' };
+                      }
+                    } else if (fc.name === 'closeMapView') {
+                      setNavigationPath(null);
+                      resultText = "Okay, closing the map.";
                     }
-                  } else {
-                    resultText = `I couldn't find a location called "${destination}". Please try again.`;
+                  } catch (error) {
+                    console.error(`Tool ${fc.name} failed:`, error);
+                    resultText = "I'm sorry, I encountered an error while trying to do that.";
                   }
-                } else if (fc.name === 'getCollegeInfo') {
-                  const query = fc.args.query as string;
-                  const searchResult = await searchWebsite(query);
-                  resultText = searchResult.text;
-                  if (searchResult.imageUrl) {
-                    lastToolResponseImageRef.current = { imageUrl: searchResult.imageUrl, imageAlt: searchResult.imageAlt || 'College Information' };
+
+                  try {
+                    await sessionRef.current?.sendToolResponse({
+                      functionResponses: {
+                        id: fc.id,
+                        name: fc.name,
+                        response: { result: resultText },
+                      }
+                    });
+                  } catch (sendError) {
+                    console.error('Failed to send tool response:', sendError);
                   }
-                } else if (fc.name === 'closeMapView') {
-                  setNavigationPath(null);
-                  resultText = "Okay, closing the map.";
                 }
+              };
 
-                sessionPromiseRef.current?.then((session: any) => {
-                  session.sendToolResponse({
-                    functionResponses: {
-                      id: fc.id,
-                      name: fc.name,
-                      response: { result: resultText },
-                    }
-                  });
-                });
-              }
+              processToolCalls();
             }
-
 
             if (message.serverContent?.outputTranscription) {
               currentOutputTranscriptionRef.current += message.serverContent.outputTranscription.text + ' ';
-              setResponse(currentOutputTranscriptionRef.current); // Update UI with partial response
+              setResponse(currentOutputTranscriptionRef.current);
             }
             if (message.serverContent?.inputTranscription) {
               currentInputTranscriptionRef.current += message.serverContent.inputTranscription.text + ' ';
-              setTranscript(currentInputTranscriptionRef.current); // Update UI with partial transcript
+              setTranscript(currentInputTranscriptionRef.current);
             }
 
             if (message.serverContent?.turnComplete) {
@@ -327,7 +315,7 @@ const AppContent: React.FC = () => {
                 audioSourcesRef.current.delete(source);
               }
               nextStartTimeRef.current = 0;
-              interruptedRef.current = false; // Reset interruption flag
+              interruptedRef.current = false;
             }
           },
           onerror: (e: ErrorEvent) => {
@@ -336,10 +324,98 @@ const AppContent: React.FC = () => {
             endConversation();
           },
           onclose: () => {
+            console.log("Live API Connection Closed");
             endConversation();
           },
         },
       });
+
+      sessionPromiseRef.current = connectPromise;
+      // When the session resolves, keep direct reference for fast access
+      connectPromise.then((s: any) => {
+        sessionRef.current = s;
+      }).catch((err: any) => {
+        console.error('Live session failed:', err);
+      });
+
+      // Set up audio capture (use AudioWorklet when available, otherwise ScriptProcessor)
+      const source = inputAudioContextRef.current!.createMediaStreamSource(stream);
+      streamSourceRef.current = source;
+
+      const sendFrame = (inputData: Float32Array) => {
+        // Compute RMS
+        let sum = 0;
+        for (let i = 0; i < inputData.length; i++) sum += inputData[i] * inputData[i];
+        const rms = Math.sqrt(sum / inputData.length);
+        const NOISE_THRESHOLD = 0.002;
+
+        const now = Date.now();
+        if (now % 1000 < 50) {
+          console.log(`Audio RMS: ${rms.toFixed(5)} | Threshold: ${NOISE_THRESHOLD}`);
+        }
+
+        // Buffer the audio data
+        audioBufferRef.current.push(new Float32Array(inputData));
+
+        // Check if buffer is large enough (e.g., 4096 samples = ~256ms at 16kHz)
+        const totalSamples = audioBufferRef.current.reduce((acc, chunk) => acc + chunk.length, 0);
+        if (totalSamples >= 4096) {
+          // Merge chunks
+          const mergedBuffer = new Float32Array(totalSamples);
+          let offset = 0;
+          for (const chunk of audioBufferRef.current) {
+            mergedBuffer.set(chunk, offset);
+            offset += chunk.length;
+          }
+          // Clear buffer
+          audioBufferRef.current = [];
+
+          try {
+            const pcmBlob = createBlob(mergedBuffer);
+            if (sessionRef.current) {
+              sessionRef.current.sendRealtimeInput({ media: pcmBlob });
+            } else if (sessionPromiseRef.current) {
+              sessionPromiseRef.current.then((session: any) => session.sendRealtimeInput({ media: pcmBlob })).catch(() => { });
+            }
+          } catch (e) {
+            console.warn('Failed to send audio frame', e);
+          }
+        }
+      };
+
+      // AudioWorklet preferred path
+      if (inputAudioContextRef.current!.audioWorklet) {
+        try {
+          await inputAudioContextRef.current!.audioWorklet.addModule('/recorder-processor.js');
+          const worklet = new (window as any).AudioWorkletNode(inputAudioContextRef.current!, 'recorder-processor');
+          worklet.port.onmessage = (ev: any) => {
+            const f32 = new Float32Array(ev.data.buffer);
+            sendFrame(f32);
+          };
+          scriptProcessorRef.current = null;
+          source.connect(worklet);
+        } catch (e) {
+          // Fallback to ScriptProcessor if addModule fails
+          const scriptProcessor = inputAudioContextRef.current!.createScriptProcessor(1024, 1, 1);
+          scriptProcessorRef.current = scriptProcessor;
+          scriptProcessor.onaudioprocess = (audioProcessingEvent) => {
+            const inputData = audioProcessingEvent.inputBuffer.getChannelData(0);
+            sendFrame(inputData);
+          };
+          source.connect(scriptProcessor);
+          scriptProcessor.connect(inputAudioContextRef.current!.destination);
+        }
+      } else {
+        // ScriptProcessor fallback for older browsers
+        const scriptProcessor = inputAudioContextRef.current!.createScriptProcessor(1024, 1, 1);
+        scriptProcessorRef.current = scriptProcessor;
+        scriptProcessor.onaudioprocess = (audioProcessingEvent) => {
+          const inputData = audioProcessingEvent.inputBuffer.getChannelData(0);
+          sendFrame(inputData);
+        };
+        source.connect(scriptProcessor);
+        scriptProcessor.connect(inputAudioContextRef.current!.destination);
+      }
 
     } catch (err) {
       console.error('Failed to start conversation:', err);
