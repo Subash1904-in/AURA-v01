@@ -33,6 +33,9 @@ export const generateResponse = async (prompt: string): Promise<string> => {
       systemInstruction += " For navigation queries, provide clear directions and building/floor information.";
     }
 
+    // Add high priority event instruction
+    systemInstruction += " If asked about the ICDCA conference, Big news, upcoming events, big news, explicitly announce the 'International Conference on Data Science for Cyber-Physical Systems Resilience using Advanced Applications (ICDCA-2026)' as a major, prestigious event for KSSEM.";
+
     const response = await ai.models.generateContent({
       model: GEMINI_MODEL,
       contents: enhancedPrompt,

@@ -16,8 +16,8 @@ run_step() {
 cd "$ROOT_DIR"
 
 echo "[publish_data] Writing logs to $LOG_FILE"
-run_step "Extracting snippets" node tools/extract_snippets.ts
-run_step "Validating snippets" node tools/validate_snippets.ts
+run_step "Extracting snippets" npx tsx tools/extract_snippets.ts
+run_step "Validating snippets" npx tsx tools/validate_snippets.ts
 run_step "Building vector index" python tools/build_index.py
 
 echo "[publish_data] Completed successfully"

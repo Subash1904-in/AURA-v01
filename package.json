@@ -10,7 +10,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "rag:server": "tsx server/ragServer.ts",
-    "rag:publish": "bash scripts/publish_data.sh"
+    "rag:publish": "powershell -ExecutionPolicy Bypass -File scripts/publish_data.ps1"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",

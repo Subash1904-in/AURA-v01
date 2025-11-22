@@ -1,0 +1,8 @@
+Date Of Conference
+
+5-6 June 2026
+
+ABOUT CONFERENCE
+International Conference on Data Science for Cyber-Physical Systems Resilience using Advanced Applications ICDCA
+
+The International Conference on Data Science for Cyber-Physical Systems Resilience using Advanced Applications (ICDCA-2026) aims to bring together researchers, practitioners, and industry experts to explore the transformative role of data science in enhancing the resilience, security, and performance of cyber-physical systems (CPS). As CPS continue to integrate into critical sectors such as smart grids, healthcare, transportation, and manufacturing, ensuring their robustness and adaptability through intelligent data-driven approaches becomes essential. ICDCA-2026 will serve as a premier platform to discuss cutting-edge research and innovative applications in areas such as machine learning, big data analytics, predictive modeling, and AI for fault detection, anomaly prediction, and real-time system optimization. The conference will feature keynote speeches, technical paper sessions, workshops, and panel discussions that foster interdisciplinary collaboration and showcase solutions that can withstand evolving cyber threats and operational disruptions. ICDCA-2026 welcomes contributions that address theoretical advancements, practical implementations, and future challenges in making cyber-physical systems more intelligent, autonomous, and resilient through the power of data science.

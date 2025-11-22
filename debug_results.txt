@@ -1,0 +1,18 @@
+Querying for: 'ICDCA 2026 conference date'
+
+Results:
+[0.5053] event_details (incoming/event_details.txt)
+       Summary: KSSEM | Department of AI & DS — Final Year Project Exhibition 2025 We are pleased to announce that t...
+----------------------------------------
+[0.4670] International_Conference_2026 (incoming/International_Conference_2026.txt)
+       Summary: Date Of Conference 5-6 June 2026 ABOUT CONFERENCE International Conference on Data Science for Cyber...
+----------------------------------------
+[0.4562] KSSEM_Academic_Calendar_Tables (incoming/KSSEM_Academic_Calendar_Tables.docx)
+       Summary: KSSEM Academic Calendar (2025–2026) – Structured Tables I ODD Semester (2025–2026) Date / Event Deta...
+----------------------------------------
+[0.3854] civil dept (Part 37) (incoming/civil dept.pdf)
+       Summary: Project Name: Project Exhibition Description: Description: Project Exhibition 2021-2022 was organize...
+----------------------------------------
+[0.3838] civil dept (Part 36) (incoming/civil dept.pdf)
+       Summary: Field Visit_CV_2024_25 Visited to Shobha Concrete Blocks Industrial Visit_Nirmaana_2024_25 Departmen...
+----------------------------------------
